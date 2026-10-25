@@ -1,22 +1,28 @@
 #include <mcp_can.h>
 #include <SPI.h>
+#include <EEPROM.h>
 
-#define CS1          10
-#define INT1         2
-#define SERIAL_BAUD  500000
-#define M_ID         0x10UL
+#define CS1           10
+#define INT1          2
+#define SERIAL_BAUD   500000
+#define M_ID          0x10UL
 #define R_ID        0x40UL
-#define TX_ID        0x20UL
-#define TX_PERIOD_MS 40
-#define M_TIMEOUT_MS 500
-#define MCP_BITMOD   0x05
-#define REG_CANCTRL  0x0F
+#define TX_ID         0x20UL
+#define TX_PERIOD_MS  40
+#define M_TIMEOUT_MS  500
+#define SAVE_DELAY_MS 5000
+#define MCP_BITMOD    0x05
+#define REG_CANCTRL   0x0F
 #define REG_RXB0CTRL  0x60
+
+#define PIN_POT_V     A6
+#define PIN_POT_H     A7
 
 MCP_CAN CAN1(CS1);
 
-// флаги из M_ID
+// ---- флаги из M_ID ----
 bool mSET, mSAVE1, mSAVE2, mM1, mM2, mSETCANCEL, mR, mP = true, mDN;
+bool mSynced = false;            // был ли принят кадр M_ID после старта/потери связи
 unsigned long lastRx_M = 0;
 
 // положение джойстика: 0 VR UP, 1 VR DOWN, 2 HR LEFT, 3 HR RIGHT, 4 левое зеркало
@@ -25,6 +31,33 @@ uint8_t joy = 0;
 uint16_t flags = 0;
 unsigned long lastTx = 0;
 
+// ---- память левого зеркала: по 2 байта (V, H) на слот ----
+enum Slot : uint8_t { S_M1, S_M2, S_LAST, S_MR };
+struct Pos { uint8_t v, h; };
+
+bool moving = false;
+bool savePending = false;
+unsigned long moveEnd = 0;
+Slot moveSlot = S_LAST;
+bool prevSave1 = false, prevSave2 = false;
+
+Pos readCurrent() {
+  Pos p;
+  p.v = analogRead(PIN_POT_V) >> 2;
+  p.h = analogRead(PIN_POT_H) >> 2;
+  return p;
+}
+
+// update пишет байт только если он изменился
+void saveSlot(Slot s, Pos p) {
+  EEPROM.update(s * 2,     p.v);
+  EEPROM.update(s * 2 + 1, p.h);
+  Serial.print(F("SAVE slot ")); Serial.print(s);
+  Serial.print(F(": V=")); Serial.print(p.v);
+  Serial.print(F(" H="));  Serial.println(p.h);
+}
+
+// ---- джойстик ----
 const int P = A0;
 enum Lvl : uint8_t { L_GND, L_VCC, L_MID };
 
@@ -99,6 +132,7 @@ void onAcceptedChange(unsigned long now) {
   }
 }
 
+// ---- CAN ----
 void parseFrame(uint32_t id, uint8_t len, const uint8_t *d) {
   if (id != M_ID || len < 2) return;
   uint16_t f = d[0] | ((uint16_t)d[1] << 8);
@@ -112,11 +146,19 @@ void parseFrame(uint32_t id, uint8_t len, const uint8_t *d) {
   mP         = f & (1 << 7);
   mDN        = f & (1 << 8);
   lastRx_M = millis();
+
+  // первый кадр после старта/потери связи не считаем фронтом сохранения
+  if (!mSynced) {
+    prevSave1 = mSAVE1;
+    prevSave2 = mSAVE2;
+    mSynced = true;
+  }
 }
 
 void resetPermissions() {
   mSET = mSAVE1 = mSAVE2 = mM1 = mM2 = mSETCANCEL = mR = mDN = false;
   mP = true;
+  mSynced = false;
 }
 
 void mcpModify(uint8_t addr, uint8_t mask, uint8_t data) {
@@ -137,6 +179,32 @@ void sendFlags() {
   mcpModify(REG_CANCTRL, 0x10, 0x10);   // abort TX
   mcpModify(REG_CANCTRL, 0x10, 0x00);
   CAN1.sendMsgBuf(TX_ID, 0, 8, buf);
+}
+
+// ---- память левого зеркала ----
+void updateMemory(unsigned long now) {
+  bool active = flags & 0x10;           // движение HL/VL с разрешением
+
+  if (active) {
+    moving = true;
+    savePending = false;
+    moveSlot = mR ? S_MR : S_LAST;
+  } else if (moving) {
+    moving = false;
+    savePending = true;
+    moveEnd = now;
+  }
+
+  if (savePending && now - moveEnd >= SAVE_DELAY_MS) {
+    savePending = false;
+    saveSlot(moveSlot, readCurrent());
+  }
+
+  // M1 / M2 по фронту 0->1
+  if (mSAVE1 && !prevSave1) saveSlot(S_M1, readCurrent());
+  if (mSAVE2 && !prevSave2) saveSlot(S_M2, readCurrent());
+  prevSave1 = mSAVE1;
+  prevSave2 = mSAVE2;
 }
 
 void setup() {
@@ -195,6 +263,8 @@ void loop() {
 
   // джойстик действует только при mR или mP
   flags = (mR || mP) ? joy : 0;
+
+  updateMemory(now);
 
   if (now - lastTx >= TX_PERIOD_MS) {
     lastTx += TX_PERIOD_MS;
