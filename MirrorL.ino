@@ -89,6 +89,7 @@ uint8_t  candCnt = 0;
 bool     haveCnt = false;
 uint8_t  lastCnt = 0;
 bool     haveRx = false, linkDown = false, linkLostNow = false;
+bool     mLost = false;                  // M пропал, данные ещё не устойчивы
 unsigned long lastRx_M = 0;
 
 bool pR = false, pM1 = false, pM2 = false, pCancel = false;
@@ -114,7 +115,8 @@ void resetPermissions() {
 }
 
 // ===================== вывод =====================
-// бит 0 VR UP, 1 VR DOWN, 2 HR LEFT, 3 HR RIGHT, 4 левое зеркало, 5 ошибка
+// joy: бит 0 VR UP, 1 VR DOWN, 2 HR LEFT, 3 HR RIGHT, 4 признак HL/VL (для логики L)
+// flags (0x20): 0..3 правое зеркало, 4 мотор левого зеркала, 5 авария или недостоверные данные M
 uint8_t  joy = 0;
 int8_t   joyAxis = -1;     // ось левого зеркала по HL/VL
 bool     joyFwd = false;   // параметр для MoveVertical/MoveHorizontal
@@ -487,9 +489,12 @@ void parseFrame(uint32_t id, uint8_t len, const uint8_t *d) {
     candF = f;
     candCnt = 1;
   }
-  if (candCnt >= FLAG_STABLE_N && f != accF) {
-    accF = f;
-    applyFlags(accF);
+  if (candCnt >= FLAG_STABLE_N) {
+    mLost = false;
+    if (f != accF) {
+      accF = f;
+      applyFlags(accF);
+    }
   }
 }
 
@@ -504,10 +509,13 @@ void mcpModify(uint8_t addr, uint8_t mask, uint8_t data) {
   SPI.endTransaction();
 }
 
+uint8_t txCnt = 0;
+
 void sendFlags() {
   uint8_t buf[8] = {0};
   buf[0] = flags & 0xFF;
   buf[1] = (flags >> 8) & 0xFF;
+  buf[COUNTER_BYTE] = txCnt++;          // счётчик кадра для R
   mcpModify(REG_CANCTRL, 0x10, 0x10);   // abort TX
   mcpModify(REG_CANCTRL, 0x10, 0x00);
   CAN1.sendMsgBuf(TX_ID, 0, 8, buf);
@@ -683,6 +691,7 @@ void loop() {
   if (haveRx && !linkDown && now - lastRx_M > M_TIMEOUT_MS) {
     linkDown = true;
     linkLostNow = true;
+    mLost = true;
     resetPermissions();
   }
 
@@ -728,8 +737,11 @@ void loop() {
   runFsm(now);
   driveMotor();
 
-  // джойстик действует только при mR или mP; бит 5 - авария
-  flags = ((mR || mP) ? joy : 0) | (fault ? 0x20 : 0);
+  // биты 0..3 - правое зеркало (джойстик, только при mR или mP),
+  // бит 4 - мотор левого зеркала включён, бит 5 - авария потенциометров или недостоверные данные M
+  flags = ((mR || mP) ? (joy & 0x0F) : 0)
+        | (motorActive ? 0x10 : 0)
+        | ((fault || mLost) ? 0x20 : 0);
 
   if (canOk && now - lastTx >= TX_PERIOD_MS) {
     lastTx += TX_PERIOD_MS;
