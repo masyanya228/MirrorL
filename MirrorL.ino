@@ -733,6 +733,7 @@ void loop() {
     }
   }
 
+  now = millis();
   sampleSensors(now);
   runFsm(now);
   driveMotor();
