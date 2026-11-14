@@ -65,7 +65,7 @@ const uint8_t AX_V = 0, AX_H = 1;
 // Пины 4..7 = PD4..PD7: состояние пишется одной операцией в порт,
 // режим хранится в одной переменной, поэтому два мотора одновременно включить нельзя.
 //                                   STOP  V_FWD V_REV H_FWD H_REV
-const uint8_t MOTOR_BITS[5] =      { 0x00, 0x20, 0xD0, 0x40, 0xB0 };
+const uint8_t MOTOR_BITS[5] =      { 0x00, 0x10, 0xE0, 0x20, 0xD0 };
 Motor motorMode = M_STOP;
 bool  motorActive = false;
 
