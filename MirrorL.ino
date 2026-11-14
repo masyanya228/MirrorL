@@ -10,64 +10,82 @@
 // ============================================================
 
 // ===================== пины и CAN =====================
-#define CS1           10
-#define INT1          2
-#define SERIAL_BAUD   500000
-#define M_ID          0x10UL
-#define TX_ID         0x20UL
-#define TX_PERIOD_MS  40
-#define M_TIMEOUT_MS  500
-#define MCP_BITMOD    0x05
-#define REG_CANCTRL   0x0F
+#define CS1 10
+#define INT1 2
+#define SERIAL_BAUD 500000
+#define M_ID 0x10UL
+#define TX_ID 0x20UL
+#define TX_PERIOD_MS 40
+#define M_TIMEOUT_MS 500
+#define MCP_BITMOD 0x05
+#define REG_CANCTRL 0x0F
 
-#define PIN_POT_V     A6
-#define PIN_POT_H     A7
+#define PIN_POT_V     A7
+#define PIN_POT_H     A6
 
 MCP_CAN CAN1(CS1);
 
 // ===================== параметры =====================
-const unsigned long SAVE_DELAY_MS   = 5000;   // ожидание перед записью Last/MR
-const unsigned long AUTO_TIMEOUT_MS = 12000;  // таймаут движения одной оси
-const unsigned long STALL_MS        = 500;    // нет изменения потенциометра
-const unsigned long SENS_MS         = 10;     // период опроса потенциометров
-const unsigned long CAN_RETRY_MS    = 1000;   // повтор инициализации MCP2515
-const unsigned long STABLE_MS       = 3000;   // устойчивая работа для сброса аварии
-const unsigned long REPEAT_WINDOW_MS= 600000; // повтор аварии в этом окне блокирует сброс
+const unsigned long SAVE_DELAY_MS = 5000;       // ожидание перед записью Last/MR
+const unsigned long AUTO_TIMEOUT_MS = 12000;    // таймаут движения одной оси
+const unsigned long STALL_MS = 2500;            // нет изменения потенциометра
+const unsigned long SENS_MS = 10;               // период опроса потенциометров
+const unsigned long CAN_RETRY_MS = 1000;        // повтор инициализации MCP2515
+const unsigned long STABLE_MS = 3000;           // устойчивая работа для сброса аварии
+const unsigned long REPEAT_WINDOW_MS = 600000;  // повтор аварии в этом окне блокирует сброс
 
-const uint8_t  TOL        = 5;     // допуск достижения цели (0..255)
-const uint8_t  CHANGE_TH  = 5;     // порог "значение изменилось"
-const uint8_t  DEADBAND   = 5;     // допустимый откат против направления
-const uint8_t  MAX_STEP   = 15;    // макс. изменение за период опроса
-const uint16_t RAW_MIN    = 20;    // сырой АЦП: ниже - обрыв/КЗ
-const uint16_t RAW_MAX    = 1003;  // выше - обрыв/КЗ
-const uint8_t  DEM_BAD    = 2;
-const uint8_t  DEM_FAULT  = 10;
+const uint8_t TOL = 2;          // допуск достижения цели (0..255)
+const uint8_t CHANGE_TH = 5;   // порог "значение изменилось"
+const uint8_t DEADBAND = 5;     // допустимый откат против направления
+const uint8_t MAX_STEP = 15;    // макс. изменение за период опроса
+const uint16_t RAW_MIN = 50;    // сырой АЦП: ниже - обрыв/КЗ (H измерен: 138..151 минимум)
+const uint16_t RAW_MAX = 1200;  // выше - обрыв/КЗ (H измерен: 886..902 максимум)
+const uint8_t DEM_BAD = 2;
+const uint8_t DEM_FAULT = 10;
 
-const uint8_t  FLAG_STABLE_N     = 3;  // одинаковых кадров M_ID подряд
-const uint8_t  MAX_FRAMES_LOOP   = 4;  // кадров CAN за один проход цикла
-const uint8_t  COUNTER_BYTE      = 2;  // счётчик кадра в M_ID
+const uint8_t FLAG_STABLE_N = 3;    // одинаковых кадров M_ID подряд
+const uint8_t MAX_FRAMES_LOOP = 4;  // кадров CAN за один проход цикла
+const uint8_t COUNTER_BYTE = 2;     // счётчик кадра в M_ID
 
 // MoveVertical(true) / MoveHorizontal(true): показание потенциометра растёт, если SIGN = +1
-const int8_t SIGN_V = +1;          // true = UP
-const int8_t SIGN_H = +1;          // true = RIGHT
+const int8_t SIGN_V = -1;  // true = UP
+const int8_t SIGN_H = +1;  // true = RIGHT
 
 // ===================== типы =====================
-enum Slot  : uint8_t { S_M1, S_M2, S_LAST, S_MR };
-enum State : uint8_t { ST_IDLE, ST_JOY, ST_GOTO_MR, ST_GOTO_M, ST_GOTO_LAST };
-enum Cause : uint8_t { C_RANGE = 1, C_DIR, C_RATE, C_STALL, C_TIMEOUT };
-enum Lvl   : uint8_t { L_GND, L_VCC, L_MID };
-enum Motor : uint8_t { M_STOP, M_V_FWD, M_V_REV, M_H_FWD, M_H_REV };
+enum Slot : uint8_t { S_M1,
+                      S_M2,
+                      S_LAST,
+                      S_MR };
+enum State : uint8_t { ST_IDLE,
+                       ST_JOY,
+                       ST_GOTO_MR,
+                       ST_GOTO_M,
+                       ST_GOTO_LAST };
+enum Cause : uint8_t { C_RANGE = 1,
+                       C_DIR,
+                       C_RATE,
+                       C_STALL,
+                       C_TIMEOUT };
+enum Lvl : uint8_t { L_GND,
+                     L_VCC,
+                     L_MID };
+enum Motor : uint8_t { M_STOP,
+                       M_V_FWD,
+                       M_V_REV,
+                       M_H_FWD,
+                       M_H_REV };
 
 const uint8_t AX_V = 0, AX_H = 1;
 
 // ===================== привод левого зеркала (L298N) =====================
-// IN1 (пин 4) - общий, IN2 (пин 5) - вертикаль, IN3 (пин 6) - горизонталь, IN4 (пин 7) = как IN1.
+// OUT1 (IN1, пин 4) - вертикаль, OUT2 (IN2, пин 5) - горизонталь, OUT3 (IN3, пин 6) - общий, IN4 (пин 7) = IN3.
+// Ось двигается, когда её выход противоположен OUT3; неиспользуемая ось повторяет OUT3.
 // Пины 4..7 = PD4..PD7: состояние пишется одной операцией в порт,
 // режим хранится в одной переменной, поэтому два мотора одновременно включить нельзя.
 //                                   STOP  V_FWD V_REV H_FWD H_REV
-const uint8_t MOTOR_BITS[5] =      { 0x00, 0x10, 0xE0, 0x20, 0xD0 };
+const uint8_t MOTOR_BITS[5] = { 0x00, 0x10, 0xE0, 0x20, 0xD0 };
 Motor motorMode = M_STOP;
-bool  motorActive = false;
+bool motorActive = false;
 
 void setMotor(Motor m) {
   if (m == motorMode) return;
@@ -75,36 +93,43 @@ void setMotor(Motor m) {
   PORTD = (PORTD & 0x0F) | MOTOR_BITS[m];
 }
 
-void StopMotor()               { setMotor(M_STOP); }
-void MoveVertical(bool dir)    { setMotor(dir ? M_V_FWD : M_V_REV); }
-void MoveHorizontal(bool dir)  { setMotor(dir ? M_H_FWD : M_H_REV); }
+void StopMotor() {
+  setMotor(M_STOP);
+}
+void MoveVertical(bool dir) {
+  setMotor(dir ? M_V_FWD : M_V_REV);
+}
+void MoveHorizontal(bool dir) {
+  setMotor(dir ? M_H_FWD : M_H_REV);
+}
 
 // ===================== флаги из M_ID =====================
 bool mSET, mSAVE1, mSAVE2, mM1, mM2, mSETCANCEL, mR, mP = true, mDN;
 
-const uint16_t FLAGS_DEFAULT = 0x0080;   // только mP
-uint16_t accF  = FLAGS_DEFAULT;          // принятые (устойчивые) флаги
+const uint16_t FLAGS_DEFAULT = 0x0080;  // только mP
+uint16_t accF = FLAGS_DEFAULT;          // принятые (устойчивые) флаги
 uint16_t candF = 0;
-uint8_t  candCnt = 0;
-bool     haveCnt = false;
-uint8_t  lastCnt = 0;
-bool     haveRx = false, linkDown = false, linkLostNow = false;
-bool     mLost = false;                  // M пропал, данные ещё не устойчивы
+uint8_t candCnt = 0;
+bool haveCnt = false;
+uint8_t lastCnt = 0;
+bool haveRx = false, linkDown = false, linkLostNow = false;
+bool mLost = false;      // M пропал, данные ещё не устойчивы
+bool dbgActive = false;  // флаги M заменены командами из порта
 unsigned long lastRx_M = 0;
 
 bool pR = false, pM1 = false, pM2 = false, pCancel = false;
 bool pSave1 = false, pSave2 = false, prevPerm = true;
 
 void applyFlags(uint16_t f) {
-  mSET       = f & (1 << 0);
-  mSAVE1     = f & (1 << 1);
-  mSAVE2     = f & (1 << 2);
-  mM1        = f & (1 << 3);
-  mM2        = f & (1 << 4);
+  mSET = f & (1 << 0);
+  mSAVE1 = f & (1 << 1);
+  mSAVE2 = f & (1 << 2);
+  mM1 = f & (1 << 3);
+  mM2 = f & (1 << 4);
   mSETCANCEL = f & (1 << 5);
-  mR         = f & (1 << 6);
-  mP         = f & (1 << 7);
-  mDN        = f & (1 << 8);
+  mR = f & (1 << 6);
+  mP = f & (1 << 7);
+  mDN = f & (1 << 8);
 }
 
 void resetPermissions() {
@@ -117,10 +142,10 @@ void resetPermissions() {
 // ===================== вывод =====================
 // joy: бит 0 VR UP, 1 VR DOWN, 2 HR LEFT, 3 HR RIGHT, 4 признак HL/VL (для логики L)
 // flags (0x20): 0..3 правое зеркало, 4 мотор левого зеркала, 5 авария или недостоверные данные M
-uint8_t  joy = 0;
-int8_t   joyAxis = -1;     // ось левого зеркала по HL/VL
-bool     joyFwd = false;   // параметр для MoveVertical/MoveHorizontal
-int8_t   joyExp = 0;       // ожидаемое направление потенциометра
+uint8_t joy = 0;
+int8_t joyAxis = -1;  // ось левого зеркала по HL/VL
+bool joyFwd = false;  // параметр для MoveVertical/MoveHorizontal
+int8_t joyExp = 0;    // ожидаемое направление потенциометра
 uint16_t flags = 0;
 unsigned long lastTx = 0;
 
@@ -130,7 +155,7 @@ unsigned long lastTx = 0;
 const uint8_t COPY_SIZE = 16;
 uint8_t mem[8];
 uint8_t validMask = 0;
-int8_t  newestIdx = -1;
+int8_t newestIdx = -1;
 uint8_t newestVer = 0;
 
 uint8_t memCheck(const uint8_t *data, uint8_t valid, uint8_t ver) {
@@ -159,7 +184,9 @@ void loadMemory() {
 
   if (pick < 0) {
     memset(mem, 0, sizeof(mem));
-    validMask = 0; newestIdx = -1; newestVer = 0;
+    validMask = 0;
+    newestIdx = -1;
+    newestVer = 0;
     Serial.println(F("MEM empty"));
     return;
   }
@@ -169,7 +196,9 @@ void loadMemory() {
   newestVer = ver[pick];
 }
 
-bool inRange(uint8_t v) { return v >= (RAW_MIN >> 2) && v <= (RAW_MAX >> 2); }
+bool inRange(uint8_t v) {
+  return v >= (RAW_MIN >> 2) && v <= (RAW_MAX >> 2);
+}
 
 bool isValid(uint8_t s) {
   return (validMask & (1 << s)) && inRange(mem[s * 2]) && inRange(mem[s * 2 + 1]);
@@ -193,9 +222,12 @@ void commitSlot(uint8_t s, uint8_t v, uint8_t h) {
   mem[s * 2 + 1] = h;
   validMask |= (1 << s);
   writeCopy();
-  Serial.print(F("SAVE slot ")); Serial.print(s);
-  Serial.print(F(": V=")); Serial.print(v);
-  Serial.print(F(" H="));  Serial.println(h);
+  Serial.print(F("SAVE slot "));
+  Serial.print(s);
+  Serial.print(F(": V="));
+  Serial.print(v);
+  Serial.print(F(" H="));
+  Serial.println(h);
 }
 
 // ===================== состояние и контроль потенциометров =====================
@@ -204,37 +236,49 @@ bool fault = false, faultLocked = false, everReset = false;
 unsigned long faultResetAt = 0;
 
 uint8_t cur[2], prevVal[2], ref[2], startVal[2];
-int8_t  expDir[2] = {0, 0};
-bool    rangeOk = true;
+int8_t expDir[2] = { 0, 0 };
+bool rangeOk = true;
 uint8_t dem = 0, lastWhy = 0;
 unsigned long lastSens = 0;
 
-bool joySuccess = false;       // ручное движение с реальным изменением показаний
+bool joySuccess = false;  // ручное движение с реальным изменением показаний
 bool goodOn = false;
 unsigned long goodSince = 0;
 
-bool isGoto() { return st == ST_GOTO_MR || st == ST_GOTO_M || st == ST_GOTO_LAST; }
+bool isGoto() {
+  return st == ST_GOTO_MR || st == ST_GOTO_M || st == ST_GOTO_LAST;
+}
 
-void clearDirs() { expDir[0] = expDir[1] = 0; }
+void clearDirs() {
+  expDir[0] = expDir[1] = 0;
+}
 
-void beginAxis(uint8_t ax) { ref[ax] = startVal[ax] = cur[ax]; }
+void beginAxis(uint8_t ax) {
+  ref[ax] = startVal[ax] = cur[ax];
+}
 
+const uint8_t SMOOTH_K = 10;
 bool readPots(uint8_t *val) {
+  static uint16_t sm[2];
+  static bool primed = false;
   uint16_t r[2] = { (uint16_t)analogRead(PIN_POT_V), (uint16_t)analogRead(PIN_POT_H) };
   bool ok = true;
   for (uint8_t i = 0; i < 2; i++) {
-    if (r[i] < RAW_MIN || r[i] > RAW_MAX) ok = false;
-    val[i] = r[i] >> 2;
+    if (r[i] < RAW_MIN || r[i] > RAW_MAX) ok = false;   // диапазон по несглаженному замеру
+    sm[i] = primed ? (sm[i] * (SMOOTH_K - 1) + r[i]) / SMOOTH_K : r[i];
+    val[i] = sm[i] >> 2;
   }
+  primed = true;
+  Serial.println(val[0]);
   return ok;
 }
 
 // ===================== автодвижение (по одной оси: сначала V, потом H) =====================
-Slot    autoSlot = S_LAST;
+Slot autoSlot = S_LAST;
 uint8_t tgt[2];
-bool    axDone[2];
-int8_t  autoAx = -1;
-bool    autoFwd = false;
+bool axDone[2];
+int8_t autoAx = -1;
+bool autoFwd = false;
 unsigned long axStart = 0, stallT = 0;
 uint8_t stallRefVal = 0;
 
@@ -263,16 +307,20 @@ void enterFault(uint8_t cause, unsigned long now) {
   if (fault) return;
   fault = true;
   if (everReset && now - faultResetAt < REPEAT_WINDOW_MS) faultLocked = true;
-  if (isGoto()) { clearDirs(); autoAx = -1; st = ST_IDLE; }
+  if (isGoto()) {
+    clearDirs();
+    autoAx = -1;
+    st = ST_IDLE;
+  }
   savePending = false;
   joySuccess = false;
   Serial.print(F("FAULT cause="));
   switch (cause) {
-    case C_RANGE:   Serial.println(F("RANGE"));     break;
-    case C_DIR:     Serial.println(F("DIRECTION")); break;
-    case C_RATE:    Serial.println(F("RATE"));      break;
-    case C_STALL:   Serial.println(F("STALL"));     break;
-    case C_TIMEOUT: Serial.println(F("TIMEOUT"));   break;
+    case C_RANGE: Serial.println(F("RANGE")); break;
+    case C_DIR: Serial.println(F("DIRECTION")); break;
+    case C_RATE: Serial.println(F("RATE")); break;
+    case C_STALL: Serial.println(F("STALL")); break;
+    case C_TIMEOUT: Serial.println(F("TIMEOUT")); break;
   }
   if (faultLocked) Serial.println(F("FAULT locked until reboot"));
 }
@@ -292,7 +340,10 @@ void selectAxis(unsigned long now) {
   for (uint8_t ax = 0; ax < 2; ax++) {
     if (axDone[ax]) continue;
     int16_t d = (int16_t)tgt[ax] - cur[ax];
-    if (abs(d) <= TOL) { axDone[ax] = true; continue; }
+    if (abs(d) <= TOL) {
+      axDone[ax] = true;
+      continue;
+    }
     autoAx = ax;
     int8_t sign = (ax == AX_V) ? SIGN_V : SIGN_H;
     autoFwd = ((d > 0) == (sign > 0));
@@ -319,7 +370,11 @@ void startAuto(State ns, uint8_t slot, unsigned long now) {
 
 void goLast(unsigned long now) {
   if (isValid(S_LAST)) startAuto(ST_GOTO_LAST, S_LAST, now);
-  else { clearDirs(); autoAx = -1; st = ST_IDLE; }
+  else {
+    clearDirs();
+    autoAx = -1;
+    st = ST_IDLE;
+  }
 }
 
 void applyJoyDirs() {
@@ -361,7 +416,10 @@ void sampleSensors(unsigned long now) {
       if (expDir[ax] != 0 && abs((int16_t)ref[ax] - startVal[ax]) >= CHANGE_TH) joySuccess = true;
   }
 
-  for (uint8_t ax = 0; ax < 2; ax++) { prevVal[ax] = v[ax]; cur[ax] = v[ax]; }
+  for (uint8_t ax = 0; ax < 2; ax++) {
+    prevVal[ax] = v[ax];
+    cur[ax] = v[ax];
+  }
   rangeOk = ok;
 
   if (why) {
@@ -373,7 +431,10 @@ void sampleSensors(unsigned long now) {
   }
 
   if (dem == 0 && ok) {
-    if (!goodOn) { goodOn = true; goodSince = now; }
+    if (!goodOn) {
+      goodOn = true;
+      goodSince = now;
+    }
   } else {
     goodOn = false;
     joySuccess = false;
@@ -387,18 +448,16 @@ void sampleSensors(unsigned long now) {
 const int P = A0;
 
 const uint8_t N = 5;
-const uint8_t PINS[N] = {A1, A5, A4, A2, A3};   // HL, VL, HR, VR, C
+const uint8_t PINS[N] = { A1, A5, A4, A2, A3 };  // HL, VL, HR, VR, C
 const uint8_t IDX_C = 4;
 const uint8_t IDLE = 4;
 
 // {при GND, при +5V}
-const char*   TXT[IDX_C][2]  = {{"HL LEFT", "HL RIGHT"}, {"VL DOWN", "VL UP"},
-                                {"HR LEFT", "HR RIGHT"}, {"VR DOWN", "VR UP"}};
-const uint8_t MASK[IDX_C][2] = {{0x10, 0x10}, {0x10, 0x10},
-                                {0x04, 0x08}, {0x02, 0x01}};
+const char *TXT[IDX_C][2] = { { "HL LEFT", "HL RIGHT" }, { "VL DOWN", "VL UP" }, { "HR LEFT", "HR RIGHT" }, { "VR DOWN", "VR UP" } };
+const uint8_t MASK[IDX_C][2] = { { 0x10, 0x10 }, { 0x10, 0x10 }, { 0x04, 0x08 }, { 0x02, 0x01 } };
 
-const uint8_t       STABLE_N      = 5;
-const unsigned long SAMPLE_MS     = 2;
+const uint8_t STABLE_N = 5;
+const unsigned long SAMPLE_MS = 2;
 const unsigned long ERR_WINDOW_MS = 50;
 
 Lvl raw[N], cand[N], accepted[N];
@@ -418,14 +477,15 @@ void scan() {
   for (uint8_t i = 0; i < N; i++) lo[i] = digitalRead(PINS[i]);
 
   for (uint8_t i = 0; i < N; i++) {
-    if (!hi[i] && !lo[i])    raw[i] = L_GND;
+    if (!hi[i] && !lo[i]) raw[i] = L_GND;
     else if (hi[i] && lo[i]) raw[i] = L_VCC;
-    else                     raw[i] = L_MID;
+    else raw[i] = L_MID;
   }
 }
 
 bool sameAs(const Lvl *a, const Lvl *b) {
-  for (uint8_t i = 0; i < N; i++) if (a[i] != b[i]) return false;
+  for (uint8_t i = 0; i < N; i++)
+    if (a[i] != b[i]) return false;
   return true;
 }
 
@@ -433,7 +493,10 @@ bool sameAs(const Lvl *a, const Lvl *b) {
 int8_t decode(const Lvl *s) {
   uint8_t active = 0, dir = 0;
   for (uint8_t i = 0; i < IDX_C; i++)
-    if (s[i] != L_MID) { active++; dir = i; }
+    if (s[i] != L_MID) {
+      active++;
+      dir = i;
+    }
 
   if (active == 0) return (s[IDX_C] == L_MID) ? IDLE : -1;
   if (active == 1 && s[IDX_C] == ((s[dir] == L_GND) ? L_VCC : L_GND)) return dir;
@@ -443,7 +506,10 @@ int8_t decode(const Lvl *s) {
 void onAcceptedChange(unsigned long now) {
   int8_t dir = decode(accepted);
   if (dir < 0) {
-    if (!pending) { pending = true; pendingSince = now; }
+    if (!pending) {
+      pending = true;
+      pendingSince = now;
+    }
     return;
   }
   pending = false;
@@ -452,10 +518,17 @@ void onAcceptedChange(unsigned long now) {
   if (dir == IDLE) {
     Serial.println(F("IDLE"));
   } else {
-    uint8_t side = (accepted[dir] == L_VCC);   // 1: RIGHT / UP
+    uint8_t side = (accepted[dir] == L_VCC);  // 1: RIGHT / UP
     joy = MASK[dir][side];
-    if (dir == 0)      { joyAxis = AX_H; joyFwd = side; joyExp = side ? SIGN_H : -SIGN_H; }
-    else if (dir == 1) { joyAxis = AX_V; joyFwd = side; joyExp = side ? SIGN_V : -SIGN_V; }
+    if (dir == 0) {
+      joyAxis = AX_H;
+      joyFwd = side;
+      joyExp = side ? SIGN_H : -SIGN_H;
+    } else if (dir == 1) {
+      joyAxis = AX_V;
+      joyFwd = side;
+      joyExp = side ? SIGN_V : -SIGN_V;
+    }
     Serial.println(TXT[dir][side]);
   }
 }
@@ -473,7 +546,7 @@ bool canInit() {
 // Флаги принимаются после FLAG_STABLE_N одинаковых кадров подряд.
 // Кадр с неизменившимся счётчиком считается залипшим и игнорируется.
 void parseFrame(uint32_t id, uint8_t len, const uint8_t *d) {
-  if (id != M_ID || len <= COUNTER_BYTE) return;
+  if (dbgActive || id != M_ID || len <= COUNTER_BYTE) return;  // в отладке кадры M игнорируются
   uint8_t c = d[COUNTER_BYTE];
   if (haveCnt && c == lastCnt) return;
   haveCnt = true;
@@ -512,24 +585,24 @@ void mcpModify(uint8_t addr, uint8_t mask, uint8_t data) {
 uint8_t txCnt = 0;
 
 void sendFlags() {
-  uint8_t buf[8] = {0};
+  uint8_t buf[8] = { 0 };
   buf[0] = flags & 0xFF;
   buf[1] = (flags >> 8) & 0xFF;
-  buf[COUNTER_BYTE] = txCnt++;          // счётчик кадра для R
-  mcpModify(REG_CANCTRL, 0x10, 0x10);   // abort TX
+  buf[COUNTER_BYTE] = txCnt++;         // счётчик кадра для R
+  mcpModify(REG_CANCTRL, 0x10, 0x10);  // abort TX
   mcpModify(REG_CANCTRL, 0x10, 0x00);
   CAN1.sendMsgBuf(TX_ID, 0, 8, buf);
 }
 
 // ===================== машина состояний =====================
 void runFsm(unsigned long now) {
-  bool perm       = mR || mP;
-  bool permLost   = prevPerm && !perm;
-  bool rRise      = mR && !pR;
-  bool rFall      = !mR && pR;
+  bool perm = mR || mP;
+  bool permLost = prevPerm && !perm;
+  bool rRise = mR && !pR;
+  bool rFall = !mR && pR;
   bool cancelRise = mSETCANCEL && !pCancel;
-  int8_t mSel     = (mM1 && !pM1) ? S_M1 : ((mM2 && !pM2) ? S_M2 : -1);
-  bool joyAny     = (joy != 0);
+  int8_t mSel = (mM1 && !pM1) ? S_M1 : ((mM2 && !pM2) ? S_M2 : -1);
+  bool joyAny = (joy != 0);
 
   // сохранение M1/M2 по фронту
   if (mSAVE1 && !pSave1) saveCurrent(S_M1);
@@ -552,9 +625,12 @@ void runFsm(unsigned long now) {
   // 2. ручное движение
   if (st == ST_JOY) {
     if (joyAny && perm) {
-      if (joyAxis >= 0) { touchedLeft = true; savePending = false; }
+      if (joyAxis >= 0) {
+        touchedLeft = true;
+        savePending = false;
+      }
       applyJoyDirs();
-    } else {                                   // отпустили, ERR или потеря разрешения
+    } else {  // отпустили, ERR или потеря разрешения
       clearDirs();
       st = ST_IDLE;
       if (touchedLeft) {
@@ -594,14 +670,19 @@ void runFsm(unsigned long now) {
 
       case ST_GOTO_M:
         if (permLost || linkLostNow) goLast(now);
-        else if (rRise) { if (isValid(S_MR)) startAuto(ST_GOTO_MR, S_MR, now); }
-        else if (cancelRise) { clearDirs(); autoAx = -1; st = ST_IDLE; }
-        else if (mSel >= 0 && mSel != autoSlot && isValid(mSel)) startAuto(ST_GOTO_M, mSel, now);
+        else if (rRise) {
+          if (isValid(S_MR)) startAuto(ST_GOTO_MR, S_MR, now);
+        } else if (cancelRise) {
+          clearDirs();
+          autoAx = -1;
+          st = ST_IDLE;
+        } else if (mSel >= 0 && mSel != autoSlot && isValid(mSel)) startAuto(ST_GOTO_M, mSel, now);
         break;
 
       case ST_GOTO_LAST:
-        if (rRise) { if (isValid(S_MR)) startAuto(ST_GOTO_MR, S_MR, now); }
-        else if (mSel >= 0 && !mR && perm && isValid(mSel)) startAuto(ST_GOTO_M, mSel, now);
+        if (rRise) {
+          if (isValid(S_MR)) startAuto(ST_GOTO_MR, S_MR, now);
+        } else if (mSel >= 0 && !mR && perm && isValid(mSel)) startAuto(ST_GOTO_M, mSel, now);
         break;
 
       default: break;
@@ -617,8 +698,11 @@ void runFsm(unsigned long now) {
     }
     if (autoAx < 0) selectAxis(now);
 
-    if (autoAx < 0) {                          // обе оси в допуске
+    if (autoAx < 0) {  // обе оси в допуске
       clearDirs();
+      Serial.print(cur[0]);
+      Serial.print(" : ");
+      Serial.println(cur[1]);
       st = ST_IDLE;
     } else if (now - axStart >= AUTO_TIMEOUT_MS) {
       enterFault(C_TIMEOUT, now);
@@ -633,8 +717,12 @@ void runFsm(unsigned long now) {
   }
 
   prevPerm = perm;
-  pR = mR; pM1 = mM1; pM2 = mM2; pCancel = mSETCANCEL;
-  pSave1 = mSAVE1; pSave2 = mSAVE2;
+  pR = mR;
+  pM1 = mM1;
+  pM2 = mM2;
+  pCancel = mSETCANCEL;
+  pSave1 = mSAVE1;
+  pSave2 = mSAVE2;
   linkLostNow = false;
 }
 
@@ -653,15 +741,73 @@ void driveMotor() {
   }
 
   motorActive = (ax >= 0);
-  if (ax == AX_V)      MoveVertical(fwd);
+  if (ax == AX_V) MoveVertical(fwd);
   else if (ax == AX_H) MoveHorizontal(fwd);
-  else                 StopMotor();
+  else StopMotor();
+}
+
+// ===================== отладочные команды из порта =====================
+// m1 m2 - ехать к сохранённому положению, set1 set2 - сохранить текущее,
+// r - задний ход, d - перед, p - паркинг. Команды заменяют флаги M (как будто их прислал M);
+// после первой команды кадры 0x10 игнорируются до перезагрузки, пропажа CAN не влияет.
+void dbgEnter() {
+  if (dbgActive) return;
+  dbgActive = true;
+  mLost = false;
+  linkDown = false;
+  mSET = mSAVE1 = mSAVE2 = mM1 = mM2 = mSETCANCEL = false;
+}
+
+void dbgPulseClear() {  // кнопка живёт один проход FSM
+  mM1 = mM2 = mSAVE1 = mSAVE2 = false;
+  pM1 = pM2 = pSave1 = pSave2 = false;
+}
+
+void serialCommands() {
+  static char buf[8];
+  static uint8_t n = 0;
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c != '\n' && c != '\r') {
+      if (c >= 'A' && c <= 'Z') c += 32;
+      if (n < sizeof(buf) - 1) buf[n++] = c;
+      continue;
+    }
+    if (!n) continue;
+    buf[n] = 0;
+    n = 0;
+
+    dbgEnter();
+    if (!strcmp(buf, "m1")) mM1 = true;
+    else if (!strcmp(buf, "m2")) mM2 = true;
+    else if (!strcmp(buf, "set1")) mSAVE1 = true;
+    else if (!strcmp(buf, "set2")) mSAVE2 = true;
+    else if (!strcmp(buf, "r")) {
+      mR = true;
+      mP = false;
+      mDN = false;
+    } else if (!strcmp(buf, "d")) {
+      mR = false;
+      mP = false;
+      mDN = true;
+    } else if (!strcmp(buf, "p")) {
+      mR = false;
+      mP = true;
+      mDN = false;
+    } else {
+      Serial.println(F("DBG ? m1 m2 set1 set2 r d p"));
+      return;
+    }
+    Serial.print(F("DBG "));
+    Serial.println(buf);
+    return;  // одна команда за проход
+  }
 }
 
 // ===================== setup / loop =====================
 void setup() {
-  PORTD &= 0x0F;           // IN1..IN4 = 0, затем делаем выходами
-  DDRD  |= 0xF0;
+  PORTD &= 0x0F;  // IN1..IN4 = 0, затем делаем выходами
+  DDRD |= 0xF0;
 
   Serial.begin(SERIAL_BAUD);
   pinMode(P, OUTPUT);
@@ -670,7 +816,8 @@ void setup() {
 
   loadMemory();
   rangeOk = readPots(cur);
-  prevVal[0] = cur[0]; prevVal[1] = cur[1];
+  prevVal[0] = cur[0];
+  prevVal[1] = cur[1];
 
   canOk = canInit();
   if (!canOk) Serial.println(F("CAN1 init fail, retrying"));
@@ -688,7 +835,7 @@ void loop() {
   }
 
   // потеря M_ID (только если хоть один пакет уже был)
-  if (haveRx && !linkDown && now - lastRx_M > M_TIMEOUT_MS) {
+  if (!dbgActive && haveRx && !linkDown && now - lastRx_M > M_TIMEOUT_MS) {
     linkDown = true;
     linkLostNow = true;
     mLost = true;
@@ -734,15 +881,17 @@ void loop() {
   }
 
   now = millis();
+  serialCommands();
   sampleSensors(now);
   runFsm(now);
+  if (dbgActive) dbgPulseClear();
   driveMotor();
 
   // биты 0..3 - правое зеркало (джойстик, только при mR или mP),
   // бит 4 - мотор левого зеркала включён, бит 5 - авария потенциометров или недостоверные данные M
   flags = ((mR || mP) ? (joy & 0x0F) : 0)
-        | (motorActive ? 0x10 : 0)
-        | ((fault || mLost) ? 0x20 : 0);
+          | (motorActive ? 0x10 : 0)
+          | ((fault || mLost) ? 0x20 : 0);
 
   if (canOk && now - lastTx >= TX_PERIOD_MS) {
     lastTx += TX_PERIOD_MS;
