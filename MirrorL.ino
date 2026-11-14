@@ -672,7 +672,6 @@ void setup() {
   rangeOk = readPots(cur);
   prevVal[0] = cur[0]; prevVal[1] = cur[1];
 
-  return;
   canOk = canInit();
   if (!canOk) Serial.println(F("CAN1 init fail, retrying"));
   lastCanTry = lastRx_M = lastTx = millis();
@@ -682,7 +681,7 @@ void loop() {
   unsigned long now = millis();
 
   // повторная инициализация MCP2515
-  if (!canOk && now - lastCanTry >= CAN_RETRY_MS && false) {
+  if (!canOk && now - lastCanTry >= CAN_RETRY_MS) {
     lastCanTry = now;
     canOk = canInit();
     if (canOk) Serial.println(F("CAN1 ok"));
