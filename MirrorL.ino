@@ -269,7 +269,6 @@ bool readPots(uint8_t *val) {
     val[i] = sm[i] >> 2;
   }
   primed = true;
-  Serial.println(val[0]);
   return ok;
 }
 
