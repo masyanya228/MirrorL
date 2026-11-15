@@ -141,9 +141,11 @@ void resetPermissions() {
 
 // ===================== вывод =====================
 // joy: бит 0 VR UP, 1 VR DOWN, 2 HR LEFT, 3 HR RIGHT, 4 признак HL/VL (для логики L)
-// flags (0x20): 0..3 правое зеркало, 4 мотор левого зеркала, 5 авария или недостоверные данные M
+// flags (0x20): 0..3 правое зеркало, 4 мотор левого зеркала, 5 авария потенциометров,
+// 6 недостоверный M, 7 недостоверный сигнал джойстика
 uint8_t joy = 0;
 int8_t joyAxis = -1;  // ось левого зеркала по HL/VL
+bool     joyBad = false;   // сигнал джойстика недостоверен (ERR)
 bool joyFwd = false;  // параметр для MoveVertical/MoveHorizontal
 int8_t joyExp = 0;    // ожидаемое направление потенциометра
 uint16_t flags = 0;
@@ -245,17 +247,14 @@ bool joySuccess = false;  // ручное движение с реальным �
 bool goodOn = false;
 unsigned long goodSince = 0;
 
-bool isGoto() {
-  return st == ST_GOTO_MR || st == ST_GOTO_M || st == ST_GOTO_LAST;
-}
+bool isGoto() { return st == ST_GOTO_MR || st == ST_GOTO_M || st == ST_GOTO_LAST; }
 
-void clearDirs() {
-  expDir[0] = expDir[1] = 0;
-}
+void clearDirs() { expDir[0] = expDir[1] = 0; }
 
-void beginAxis(uint8_t ax) {
-  ref[ax] = startVal[ax] = cur[ax];
-}
+void beginAxis(uint8_t ax) { ref[ax] = startVal[ax] = cur[ax]; }
+
+// Сглаживание: новое = (старое*(K-1) + замер) / K. Значение хранится в 10 бит:
+// в 8 битах целочисленное деление не даёт ему расти на малые шаги.
 
 const uint8_t SMOOTH_K = 10;
 bool readPots(uint8_t *val) {
@@ -306,11 +305,7 @@ void enterFault(uint8_t cause, unsigned long now) {
   if (fault) return;
   fault = true;
   if (everReset && now - faultResetAt < REPEAT_WINDOW_MS) faultLocked = true;
-  if (isGoto()) {
-    clearDirs();
-    autoAx = -1;
-    st = ST_IDLE;
-  }
+  if (isGoto()) { clearDirs(); autoAx = -1; st = ST_IDLE; }
   savePending = false;
   joySuccess = false;
   Serial.print(F("FAULT cause="));
@@ -339,10 +334,7 @@ void selectAxis(unsigned long now) {
   for (uint8_t ax = 0; ax < 2; ax++) {
     if (axDone[ax]) continue;
     int16_t d = (int16_t)tgt[ax] - cur[ax];
-    if (abs(d) <= TOL) {
-      axDone[ax] = true;
-      continue;
-    }
+    if (abs(d) <= TOL) { axDone[ax] = true; continue; }
     autoAx = ax;
     int8_t sign = (ax == AX_V) ? SIGN_V : SIGN_H;
     autoFwd = ((d > 0) == (sign > 0));
@@ -369,11 +361,7 @@ void startAuto(State ns, uint8_t slot, unsigned long now) {
 
 void goLast(unsigned long now) {
   if (isValid(S_LAST)) startAuto(ST_GOTO_LAST, S_LAST, now);
-  else {
-    clearDirs();
-    autoAx = -1;
-    st = ST_IDLE;
-  }
+  else { clearDirs(); autoAx = -1; st = ST_IDLE; }
 }
 
 void applyJoyDirs() {
@@ -430,10 +418,7 @@ void sampleSensors(unsigned long now) {
   }
 
   if (dem == 0 && ok) {
-    if (!goodOn) {
-      goodOn = true;
-      goodSince = now;
-    }
+    if (!goodOn) { goodOn = true; goodSince = now; }
   } else {
     goodOn = false;
     joySuccess = false;
@@ -505,13 +490,11 @@ int8_t decode(const Lvl *s) {
 void onAcceptedChange(unsigned long now) {
   int8_t dir = decode(accepted);
   if (dir < 0) {
-    if (!pending) {
-      pending = true;
-      pendingSince = now;
-    }
+    if (!pending) { pending = true; pendingSince = now; }
     return;
   }
   pending = false;
+  joyBad = false;
   joy = 0;
   joyAxis = -1;
   if (dir == IDLE) {
@@ -519,15 +502,8 @@ void onAcceptedChange(unsigned long now) {
   } else {
     uint8_t side = (accepted[dir] == L_VCC);  // 1: RIGHT / UP
     joy = MASK[dir][side];
-    if (dir == 0) {
-      joyAxis = AX_H;
-      joyFwd = side;
-      joyExp = side ? SIGN_H : -SIGN_H;
-    } else if (dir == 1) {
-      joyAxis = AX_V;
-      joyFwd = side;
-      joyExp = side ? SIGN_V : -SIGN_V;
-    }
+    if (dir == 0)      { joyAxis = AX_H; joyFwd = side; joyExp = side ? SIGN_H : -SIGN_H; }
+    else if (dir == 1) { joyAxis = AX_V; joyFwd = side; joyExp = side ? SIGN_V : -SIGN_V; }
     Serial.println(TXT[dir][side]);
   }
 }
@@ -624,10 +600,7 @@ void runFsm(unsigned long now) {
   // 2. ручное движение
   if (st == ST_JOY) {
     if (joyAny && perm) {
-      if (joyAxis >= 0) {
-        touchedLeft = true;
-        savePending = false;
-      }
+      if (joyAxis >= 0) { touchedLeft = true; savePending = false; }
       applyJoyDirs();
     } else {  // отпустили, ERR или потеря разрешения
       clearDirs();
@@ -669,19 +642,14 @@ void runFsm(unsigned long now) {
 
       case ST_GOTO_M:
         if (permLost || linkLostNow) goLast(now);
-        else if (rRise) {
-          if (isValid(S_MR)) startAuto(ST_GOTO_MR, S_MR, now);
-        } else if (cancelRise) {
-          clearDirs();
-          autoAx = -1;
-          st = ST_IDLE;
-        } else if (mSel >= 0 && mSel != autoSlot && isValid(mSel)) startAuto(ST_GOTO_M, mSel, now);
+        else if (rRise) { if (isValid(S_MR)) startAuto(ST_GOTO_MR, S_MR, now); }
+        else if (cancelRise) { clearDirs(); autoAx = -1; st = ST_IDLE; }
+        else if (mSel >= 0 && mSel != autoSlot && isValid(mSel)) startAuto(ST_GOTO_M, mSel, now);
         break;
 
       case ST_GOTO_LAST:
-        if (rRise) {
-          if (isValid(S_MR)) startAuto(ST_GOTO_MR, S_MR, now);
-        } else if (mSel >= 0 && !mR && perm && isValid(mSel)) startAuto(ST_GOTO_M, mSel, now);
+        if (rRise) { if (isValid(S_MR)) startAuto(ST_GOTO_MR, S_MR, now); }
+        else if (mSel >= 0 && !mR && perm && isValid(mSel)) startAuto(ST_GOTO_M, mSel, now);
         break;
 
       default: break;
@@ -710,18 +678,18 @@ void runFsm(unsigned long now) {
         stallRefVal = cur[autoAx];
         stallT = now;
       } else if (now - stallT >= STALL_MS) {
+        Serial.print(F("STALL ax="));  Serial.print(autoAx);
+        Serial.print(F(" start="));    Serial.print(startVal[autoAx]);
+        Serial.print(F(" cur="));      Serial.print(cur[autoAx]);
+        Serial.print(F(" tgt="));      Serial.println(tgt[autoAx]);
         enterFault(C_STALL, now);
       }
     }
   }
 
   prevPerm = perm;
-  pR = mR;
-  pM1 = mM1;
-  pM2 = mM2;
-  pCancel = mSETCANCEL;
-  pSave1 = mSAVE1;
-  pSave2 = mSAVE2;
+  pR = mR; pM1 = mM1; pM2 = mM2; pCancel = mSETCANCEL;
+  pSave1 = mSAVE1; pSave2 = mSAVE2;
   linkLostNow = false;
 }
 
@@ -781,24 +749,11 @@ void serialCommands() {
     else if (!strcmp(buf, "m2")) mM2 = true;
     else if (!strcmp(buf, "set1")) mSAVE1 = true;
     else if (!strcmp(buf, "set2")) mSAVE2 = true;
-    else if (!strcmp(buf, "r")) {
-      mR = true;
-      mP = false;
-      mDN = false;
-    } else if (!strcmp(buf, "d")) {
-      mR = false;
-      mP = false;
-      mDN = true;
-    } else if (!strcmp(buf, "p")) {
-      mR = false;
-      mP = true;
-      mDN = false;
-    } else {
-      Serial.println(F("DBG ? m1 m2 set1 set2 r d p"));
-      return;
-    }
-    Serial.print(F("DBG "));
-    Serial.println(buf);
+    else if (!strcmp(buf, "r"))  { mR = true;  mP = false; mDN = false; }
+    else if (!strcmp(buf, "d"))  { mR = false; mP = false; mDN = true;  }
+    else if (!strcmp(buf, "p"))  { mR = false; mP = true;  mDN = false; }
+    else { Serial.println(F("DBG ? m1 m2 set1 set2 r d p")); return; }
+    Serial.print(F("DBG ")); Serial.println(buf);
     return;  // одна команда за проход
   }
 }
@@ -815,8 +770,7 @@ void setup() {
 
   loadMemory();
   rangeOk = readPots(cur);
-  prevVal[0] = cur[0];
-  prevVal[1] = cur[1];
+  prevVal[0] = cur[0]; prevVal[1] = cur[1];
 
   canOk = canInit();
   if (!canOk) Serial.println(F("CAN1 init fail, retrying"));
@@ -844,6 +798,7 @@ void loop() {
   // джойстик неконсистентен дольше окна - ошибка, как отпускание
   if (pending && now - pendingSince >= ERR_WINDOW_MS) {
     pending = false;
+    joyBad = true;
     joy = 0;
     joyAxis = -1;
     Serial.println(F("ERR"));
@@ -879,7 +834,6 @@ void loop() {
     }
   }
 
-  now = millis();
   serialCommands();
   sampleSensors(now);
   runFsm(now);
@@ -887,10 +841,13 @@ void loop() {
   driveMotor();
 
   // биты 0..3 - правое зеркало (джойстик, только при mR или mP),
-  // бит 4 - мотор левого зеркала включён, бит 5 - авария потенциометров или недостоверные данные M
+  // бит 4 - мотор левого зеркала включён, бит 5 - авария потенциометров,
+  // бит 6 - недостоверный M, бит 7 - недостоверный сигнал джойстика
   flags = ((mR || mP) ? (joy & 0x0F) : 0)
           | (motorActive ? 0x10 : 0)
-          | ((fault || mLost) ? 0x20 : 0);
+        | (fault ? 0x20 : 0)
+        | (mLost ? 0x40 : 0)
+        | (joyBad ? 0x80 : 0);
 
   if (canOk && now - lastTx >= TX_PERIOD_MS) {
     lastTx += TX_PERIOD_MS;
