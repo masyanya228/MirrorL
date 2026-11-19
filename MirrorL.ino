@@ -52,28 +52,11 @@ const int8_t SIGN_V = -1;  // true = UP
 const int8_t SIGN_H = +1;  // true = RIGHT
 
 // ===================== типы =====================
-enum Slot : uint8_t { S_M1,
-                      S_M2,
-                      S_LAST,
-                      S_MR };
-enum State : uint8_t { ST_IDLE,
-                       ST_JOY,
-                       ST_GOTO_MR,
-                       ST_GOTO_M,
-                       ST_GOTO_LAST };
-enum Cause : uint8_t { C_RANGE = 1,
-                       C_DIR,
-                       C_RATE,
-                       C_STALL,
-                       C_TIMEOUT };
-enum Lvl : uint8_t { L_GND,
-                     L_VCC,
-                     L_MID };
-enum Motor : uint8_t { M_STOP,
-                       M_V_FWD,
-                       M_V_REV,
-                       M_H_FWD,
-                       M_H_REV };
+enum Slot  : uint8_t { S_M1, S_M2, S_LAST, S_MR };
+enum State : uint8_t { ST_IDLE, ST_JOY, ST_GOTO_MR, ST_GOTO_M, ST_GOTO_LAST };
+enum Cause : uint8_t { C_RANGE = 1, C_DIR, C_RATE, C_STALL, C_TIMEOUT };
+enum Lvl   : uint8_t { L_GND, L_VCC, L_MID };
+enum Motor : uint8_t { M_STOP, M_V_FWD, M_V_REV, M_H_FWD, M_H_REV };
 
 const uint8_t AX_V = 0, AX_H = 1;
 
@@ -93,15 +76,9 @@ void setMotor(Motor m) {
   PORTD = (PORTD & 0x0F) | MOTOR_BITS[m];
 }
 
-void StopMotor() {
-  setMotor(M_STOP);
-}
-void MoveVertical(bool dir) {
-  setMotor(dir ? M_V_FWD : M_V_REV);
-}
-void MoveHorizontal(bool dir) {
-  setMotor(dir ? M_H_FWD : M_H_REV);
-}
+void StopMotor()               { setMotor(M_STOP); }
+void MoveVertical(bool dir)    { setMotor(dir ? M_V_FWD : M_V_REV); }
+void MoveHorizontal(bool dir)  { setMotor(dir ? M_H_FWD : M_H_REV); }
 
 // ===================== флаги из M_ID =====================
 bool mSET, mSAVE1, mSAVE2, mM1, mM2, mSETCANCEL, mR, mP = true, mDN;
@@ -186,9 +163,7 @@ void loadMemory() {
 
   if (pick < 0) {
     memset(mem, 0, sizeof(mem));
-    validMask = 0;
-    newestIdx = -1;
-    newestVer = 0;
+    validMask = 0; newestIdx = -1; newestVer = 0;
     Serial.println(F("MEM empty"));
     return;
   }
@@ -198,9 +173,7 @@ void loadMemory() {
   newestVer = ver[pick];
 }
 
-bool inRange(uint8_t v) {
-  return v >= (RAW_MIN >> 2) && v <= (RAW_MAX >> 2);
-}
+bool inRange(uint8_t v) { return v >= (RAW_MIN >> 2) && v <= (RAW_MAX >> 2); }
 
 bool isValid(uint8_t s) {
   return (validMask & (1 << s)) && inRange(mem[s * 2]) && inRange(mem[s * 2 + 1]);
@@ -224,12 +197,9 @@ void commitSlot(uint8_t s, uint8_t v, uint8_t h) {
   mem[s * 2 + 1] = h;
   validMask |= (1 << s);
   writeCopy();
-  Serial.print(F("SAVE slot "));
-  Serial.print(s);
-  Serial.print(F(": V="));
-  Serial.print(v);
-  Serial.print(F(" H="));
-  Serial.println(h);
+  Serial.print(F("SAVE slot ")); Serial.print(s);
+  Serial.print(F(": V=")); Serial.print(v);
+  Serial.print(F(" H="));  Serial.println(h);
 }
 
 // ===================== состояние и контроль потенциометров =====================
@@ -403,10 +373,7 @@ void sampleSensors(unsigned long now) {
       if (expDir[ax] != 0 && abs((int16_t)ref[ax] - startVal[ax]) >= CHANGE_TH) joySuccess = true;
   }
 
-  for (uint8_t ax = 0; ax < 2; ax++) {
-    prevVal[ax] = v[ax];
-    cur[ax] = v[ax];
-  }
+  for (uint8_t ax = 0; ax < 2; ax++) { prevVal[ax] = v[ax]; cur[ax] = v[ax]; }
   rangeOk = ok;
 
   if (why) {
@@ -437,8 +404,10 @@ const uint8_t IDX_C = 4;
 const uint8_t IDLE = 4;
 
 // {при GND, при +5V}
-const char *TXT[IDX_C][2] = { { "HL LEFT", "HL RIGHT" }, { "VL DOWN", "VL UP" }, { "HR LEFT", "HR RIGHT" }, { "VR DOWN", "VR UP" } };
-const uint8_t MASK[IDX_C][2] = { { 0x10, 0x10 }, { 0x10, 0x10 }, { 0x04, 0x08 }, { 0x02, 0x01 } };
+const char*   TXT[IDX_C][2]  = {{"HL LEFT", "HL RIGHT"}, {"VL DOWN", "VL UP"},
+                                {"HR LEFT", "HR RIGHT"}, {"VR DOWN", "VR UP"}};
+const uint8_t MASK[IDX_C][2] = {{0x10, 0x10}, {0x10, 0x10},
+                                {0x04, 0x08}, {0x02, 0x01}};
 
 const uint8_t STABLE_N = 5;
 const unsigned long SAMPLE_MS = 2;
@@ -468,8 +437,7 @@ void scan() {
 }
 
 bool sameAs(const Lvl *a, const Lvl *b) {
-  for (uint8_t i = 0; i < N; i++)
-    if (a[i] != b[i]) return false;
+  for (uint8_t i = 0; i < N; i++) if (a[i] != b[i]) return false;
   return true;
 }
 
@@ -477,10 +445,7 @@ bool sameAs(const Lvl *a, const Lvl *b) {
 int8_t decode(const Lvl *s) {
   uint8_t active = 0, dir = 0;
   for (uint8_t i = 0; i < IDX_C; i++)
-    if (s[i] != L_MID) {
-      active++;
-      dir = i;
-    }
+    if (s[i] != L_MID) { active++; dir = i; }
 
   if (active == 0) return (s[IDX_C] == L_MID) ? IDLE : -1;
   if (active == 1 && s[IDX_C] == ((s[dir] == L_GND) ? L_VCC : L_GND)) return dir;
@@ -580,8 +545,11 @@ void runFsm(unsigned long now) {
   bool joyAny = (joy != 0);
 
   // сохранение M1/M2 по фронту
+  // SAVE запрещён во время автодвижения (фронт при этом не запоминается)
+  if (!isGoto()) {
   if (mSAVE1 && !pSave1) saveCurrent(S_M1);
   if (mSAVE2 && !pSave2) saveCurrent(S_M2);
+  }
 
   // 1. джойстик имеет высший приоритет: прерывает автодвижение всегда,
   //    но двигает зеркало только при разрешении
@@ -629,27 +597,25 @@ void runFsm(unsigned long now) {
           if (isValid(S_MR)) startAuto(ST_GOTO_MR, S_MR, now);
         } else if (rFall && !linkLostNow) {
           if (isValid(S_LAST)) startAuto(ST_GOTO_LAST, S_LAST, now);
-        } else if (mSel >= 0) {
-          if (mR) copyToLast(mSel);
-          else if (perm && isValid(mSel)) startAuto(ST_GOTO_M, mSel, now);
+        } else if (mSel >= 0 && mP && !mR && isValid(mSel)) {   // M1/M2 только в P
+          startAuto(ST_GOTO_M, mSel, now);
         }
         break;
 
       case ST_GOTO_MR:
         if (rFall) goLast(now);
-        else if (mSel >= 0) copyToLast(mSel);
         break;
 
       case ST_GOTO_M:
         if (permLost || linkLostNow) goLast(now);
         else if (rRise) { if (isValid(S_MR)) startAuto(ST_GOTO_MR, S_MR, now); }
         else if (cancelRise) { clearDirs(); autoAx = -1; st = ST_IDLE; }
-        else if (mSel >= 0 && mSel != autoSlot && isValid(mSel)) startAuto(ST_GOTO_M, mSel, now);
+        else if (mSel >= 0 && mP && mSel != autoSlot && isValid(mSel)) startAuto(ST_GOTO_M, mSel, now);
         break;
 
       case ST_GOTO_LAST:
         if (rRise) { if (isValid(S_MR)) startAuto(ST_GOTO_MR, S_MR, now); }
-        else if (mSel >= 0 && !mR && perm && isValid(mSel)) startAuto(ST_GOTO_M, mSel, now);
+        else if (mSel >= 0 && mP && !mR && isValid(mSel)) startAuto(ST_GOTO_M, mSel, now);
         break;
 
       default: break;
