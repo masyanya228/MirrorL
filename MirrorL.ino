@@ -19,6 +19,10 @@
 #define M_TIMEOUT_MS 500
 #define MCP_BITMOD 0x05
 #define REG_CANCTRL 0x0F
+#define DIAG_CMD_ID  0x99UL        // M -> L: команда самодиагностики
+#define DIAG_TX_ID   0x98UL        // L -> M: результаты самодиагностики (этапы 1,2)
+#define DIAG_TIMEOUT_MS 500        // нет 0x99 дольше этого времени - выход из режима
+#define DIAG_MOVE_MAX_MS 12000     // макс. непрерывное движение оси в диагностике
 
 #define PIN_POT_V     A7
 #define PIN_POT_H     A6
@@ -344,6 +348,120 @@ void applyJoyDirs() {
   }
 }
 
+// ===================== самодиагностика =====================
+// M -> L, ID 0x99, байт 0: бит 0 = режим включён, биты 1..2 = этап (0..3):
+//   0 левое влево, 1 левое вверх, 2 правое вправо, 3 правое вниз.
+// Пока приходит 0x99 (keep-alive), L игнорирует остальные входящие кадры, отключает автоматику,
+// аварии и запись в EEPROM; джойстик двигает левое зеркало, 0x20 для R продолжает уходить.
+// L -> M, ID 0x98 (на всех этапах), DLC 4:
+//   байт 0: бит 0 зеркало по джойстику (0 левое, 1 правое), биты 1..4 направление
+//           (1 Left, 2 Right, 3 Up, 4 Down; накапливается за этап), бит 5 ERR (защёлка),
+//           бит 6 знак потенциометра H (1 = растёт при движении вправо),
+//           бит 7 знак потенциометра V (1 = растёт при движении вверх)
+//   байт 1: сдвиг потенциометра H (int8, пик с макс. модулем от базы этапа)
+//   байт 2: сдвиг потенциометра V (int8, то же)
+//   байт 3: счётчик кадра
+bool diagActive = false;
+uint8_t diagStage = 0;
+unsigned long lastRx99 = 0;
+uint8_t dDirs = 0;     // бит 0 Left, 1 Right, 2 Up, 3 Down
+bool dSide = false;    // последнее валидное положение: false = левое, true = правое
+bool dErr = false;
+uint8_t dBase[2] = { 0, 0 };
+int8_t dPeak[2] = { 0, 0 };
+uint8_t diagCnt = 0;
+int8_t dAx = -1;       // текущая ось движения в диагностике
+bool dFwd = false, dLock = false;
+unsigned long dStart = 0;
+
+void diagReset(uint8_t stage) {
+  diagStage = stage;
+  dDirs = 0;
+  dSide = false;
+  dErr = joyBad;
+  for (uint8_t ax = 0; ax < 2; ax++) { dBase[ax] = cur[ax]; dPeak[ax] = 0; }
+  Serial.print(F("DIAG stage ")); Serial.println(stage + 1);
+}
+
+void diagEnter(uint8_t stage) {
+  flushSave();
+  StopMotor();
+  motorActive = false;
+  st = ST_IDLE;
+  clearDirs();
+  autoAx = -1;
+  savePending = false;
+  touchedLeft = false;
+  joySuccess = false;
+  resetPermissions();  // mP = true, остальные флаги M сброшены
+  mLost = false;
+  linkDown = false;
+  dAx = -1;
+  dLock = false;
+  diagActive = true;
+  Serial.println(F("DIAG on"));
+  diagReset(stage);
+}
+
+void diagExit() {
+  diagActive = false;
+  StopMotor();
+  motorActive = false;
+  st = ST_IDLE;
+  clearDirs();
+  autoAx = -1;
+  savePending = false;
+  touchedLeft = false;
+  joySuccess = false;
+  goodOn = false;
+  resetPermissions();
+  pR = pM1 = pM2 = pCancel = pSave1 = pSave2 = false;
+  prevPerm = true;
+  haveRx = false;
+  linkDown = false;
+  linkLostNow = false;
+  mLost = false;
+  lastRx_M = millis();
+  Serial.println(F("DIAG off"));
+}
+
+void diagOnCmd(uint8_t b) {
+  lastRx99 = millis();
+  if (!(b & 1)) { if (diagActive) diagExit(); return; }
+  uint8_t stage = (b >> 1) & 0x03;
+  if (!diagActive) diagEnter(stage);
+  else if (stage != diagStage) diagReset(stage);
+}
+
+void diagOnJoy(int8_t dir, uint8_t side) {  // вызывается для валидного положения 0..3
+  uint8_t bit = (dir & 1) ? (side ? 4 : 8) : (side ? 2 : 1);
+  dDirs |= bit;
+  dSide = (dir >= 2);
+}
+
+void diagTrack(const uint8_t *v) {
+  for (uint8_t ax = 0; ax < 2; ax++) {
+    int16_t dl = (int16_t)v[ax] - dBase[ax];
+    if (abs(dl) > abs((int16_t)dPeak[ax])) dPeak[ax] = (int8_t)constrain(dl, -127, 127);
+  }
+}
+
+// Движение левого зеркала по джойстику без аварий и автоматики, с ограничением по времени
+void diagStep(unsigned long now) {
+  int8_t ax = (joy != 0 && !joyBad) ? joyAxis : -1;
+  bool fwd = joyFwd;
+  if (ax != dAx || (ax >= 0 && fwd != dFwd)) {
+    dAx = ax; dFwd = fwd; dStart = now; dLock = false;
+  }
+  if (ax >= 0 && !dLock && now - dStart >= DIAG_MOVE_MAX_MS) dLock = true;
+  if (dLock) ax = -1;
+
+  motorActive = (ax >= 0);
+  if (ax == AX_V) MoveVertical(fwd);
+  else if (ax == AX_H) MoveHorizontal(fwd);
+  else StopMotor();
+}
+
 // Опрос потенциометров: диапазон, направление, скорость, штрафные очки, сброс аварии
 void sampleSensors(unsigned long now) {
   if (now - lastSens < SENS_MS) return;
@@ -351,6 +469,14 @@ void sampleSensors(unsigned long now) {
 
   uint8_t v[2];
   bool ok = readPots(v);
+
+  if (diagActive) {  // диагностика: только измерение, без контроля и аварий
+    for (uint8_t ax = 0; ax < 2; ax++) { prevVal[ax] = v[ax]; cur[ax] = v[ax]; }
+    rangeOk = ok;
+    diagTrack(v);
+    return;
+  }
+
   uint8_t why = ok ? 0 : C_RANGE;
 
   if (motorActive) {
@@ -470,6 +596,7 @@ void onAcceptedChange(unsigned long now) {
     if (dir == 0)      { joyAxis = AX_H; joyFwd = side; joyExp = side ? SIGN_H : -SIGN_H; }
     else if (dir == 1) { joyAxis = AX_V; joyFwd = side; joyExp = side ? SIGN_V : -SIGN_V; }
     Serial.println(TXT[dir][side]);
+    if (diagActive) diagOnJoy(dir, side);
   }
 }
 
@@ -486,7 +613,8 @@ bool canInit() {
 // Флаги принимаются после FLAG_STABLE_N одинаковых кадров подряд.
 // Кадр с неизменившимся счётчиком считается залипшим и игнорируется.
 void parseFrame(uint32_t id, uint8_t len, const uint8_t *d) {
-  if (dbgActive || id != M_ID || len <= COUNTER_BYTE) return;  // в отладке кадры M игнорируются
+  if (id == DIAG_CMD_ID && len >= 1) { diagOnCmd(d[0]); return; }
+  if (diagActive || dbgActive || id != M_ID || len <= COUNTER_BYTE) return;  // в диагностике/отладке кадры M игнорируются
   uint8_t c = d[COUNTER_BYTE];
   if (haveCnt && c == lastCnt) return;
   haveCnt = true;
@@ -532,6 +660,16 @@ void sendFlags() {
   mcpModify(REG_CANCTRL, 0x10, 0x10);  // abort TX
   mcpModify(REG_CANCTRL, 0x10, 0x00);
   CAN1.sendMsgBuf(TX_ID, 0, 8, buf);
+}
+
+void sendDiag() {
+  uint8_t b[4];
+  b[0] = (dSide ? 0x01 : 0) | (uint8_t)(dDirs << 1) | (dErr ? 0x20 : 0)
+         | (SIGN_H > 0 ? 0x40 : 0) | (SIGN_V > 0 ? 0x80 : 0);
+  b[1] = (uint8_t)dPeak[AX_H];
+  b[2] = (uint8_t)dPeak[AX_V];
+  b[3] = diagCnt++;
+  CAN1.sendMsgBuf(DIAG_TX_ID, 0, 4, b);
 }
 
 // ===================== машина состояний =====================
@@ -753,8 +891,11 @@ void loop() {
     if (canOk) Serial.println(F("CAN1 ok"));
   }
 
+  // выход из диагностики при пропаже 0x99
+  if (diagActive && now - lastRx99 > DIAG_TIMEOUT_MS) diagExit();
+
   // потеря M_ID (только если хоть один пакет уже был)
-  if (!dbgActive && haveRx && !linkDown && now - lastRx_M > M_TIMEOUT_MS) {
+  if (!diagActive && !dbgActive && haveRx && !linkDown && now - lastRx_M > M_TIMEOUT_MS) {
     linkDown = true;
     linkLostNow = true;
     mLost = true;
@@ -767,6 +908,7 @@ void loop() {
     joyBad = true;
     joy = 0;
     joyAxis = -1;
+    if (diagActive) dErr = true;
     Serial.println(F("ERR"));
   }
 
@@ -800,23 +942,28 @@ void loop() {
     }
   }
 
-  serialCommands();
+  if (!diagActive) serialCommands();
   sampleSensors(now);
+  if (diagActive) {
+    diagStep(now);
+  } else {
   runFsm(now);
   if (dbgActive) dbgPulseClear();
   driveMotor();
+  }
 
   // биты 0..3 - правое зеркало (джойстик, только при mR или mP),
   // бит 4 - мотор левого зеркала включён, бит 5 - авария потенциометров,
   // бит 6 - недостоверный M, бит 7 - недостоверный сигнал джойстика
   flags = ((mR || mP) ? (joy & 0x0F) : 0)
           | (motorActive ? 0x10 : 0)
-        | (fault ? 0x20 : 0)
+        | ((fault && !diagActive) ? 0x20 : 0)
         | (mLost ? 0x40 : 0)
         | (joyBad ? 0x80 : 0);
 
   if (canOk && now - lastTx >= TX_PERIOD_MS) {
     lastTx += TX_PERIOD_MS;
     sendFlags();
+    if (diagActive) sendDiag();
   }
 }
