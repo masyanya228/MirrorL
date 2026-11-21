@@ -24,8 +24,8 @@
 #define DIAG_TIMEOUT_MS 500        // нет 0x99 дольше этого времени - выход из режима
 #define DIAG_MOVE_MAX_MS 12000     // макс. непрерывное движение оси в диагностике
 
-#define PIN_POT_V     A7
-#define PIN_POT_H     A6
+#define PIN_POT_V     A6
+#define PIN_POT_H     A7
 
 MCP_CAN CAN1(CS1);
 
@@ -52,7 +52,7 @@ const uint8_t MAX_FRAMES_LOOP = 4;  // кадров CAN за один прохо
 const uint8_t COUNTER_BYTE = 2;     // счётчик кадра в M_ID
 
 // MoveVertical(true) / MoveHorizontal(true): показание потенциометра растёт, если SIGN = +1
-const int8_t SIGN_V = -1;  // true = UP
+const int8_t SIGN_V = +1;  // true = UP
 const int8_t SIGN_H = +1;  // true = RIGHT
 
 // ===================== типы =====================
@@ -70,7 +70,7 @@ const uint8_t AX_V = 0, AX_H = 1;
 // Пины 4..7 = PD4..PD7: состояние пишется одной операцией в порт,
 // режим хранится в одной переменной, поэтому два мотора одновременно включить нельзя.
 //                                   STOP  V_FWD V_REV H_FWD H_REV
-const uint8_t MOTOR_BITS[5] = { 0x00, 0x10, 0xE0, 0x20, 0xD0 };
+const uint8_t MOTOR_BITS[5] = { 0x00, 0x20, 0xD0, 0xE0, 0x10 };
 Motor motorMode = M_STOP;
 bool motorActive = false;
 
@@ -592,6 +592,7 @@ void onAcceptedChange(unsigned long now) {
     Serial.println(F("IDLE"));
   } else {
     uint8_t side = (accepted[dir] == L_VCC);  // 1: RIGHT / UP
+    dir ^= 2;
     joy = MASK[dir][side];
     if (dir == 0)      { joyAxis = AX_H; joyFwd = side; joyExp = side ? SIGN_H : -SIGN_H; }
     else if (dir == 1) { joyAxis = AX_V; joyFwd = side; joyExp = side ? SIGN_V : -SIGN_V; }
